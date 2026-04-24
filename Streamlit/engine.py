@@ -5,8 +5,8 @@ from ultralytics import YOLO
 # ============================
 # LOAD MODEL
 # ============================
-model_det = YOLO("best.pt")   # model detection
-model_seg = YOLO("bestseg.pt")      # model segmentation
+model_det = YOLO("best.pt")        # detection
+model_seg = YOLO("best-seg.pt")    # segmentation
 
 SCALING_FACTOR = 0.00010024
 
@@ -14,7 +14,7 @@ SCALING_FACTOR = 0.00010024
 # ============================
 # TAMBAH MARGIN
 # ============================
-def add_margin(box, img_shape, margin=0.05):
+def add_margin(box, img_shape, margin=0.15):  # 🔥 diperbesar biar aman
     h, w = img_shape[:2]
     x1, y1, x2, y2 = box
 
@@ -39,6 +39,7 @@ def process_image(image):
     total_weight = 0
     output_image = image.copy()
     detected_objects = []
+    crop_images = []  # ✅ FIX ERROR
 
     for r in results:
         for box in r.boxes:
@@ -63,16 +64,25 @@ def process_image(image):
             # ============================
             # KHUSUS NASI
             # ============================
-            if label.lower() == "nasi":
+            if "nasi" in label.lower():   # ✅ FIX LABEL
                 found_rice = True
 
                 x1, y1, x2, y2 = add_margin((x1, y1, x2, y2), image.shape)
 
                 crop = image[y1:y2, x1:x2]
 
+                if crop.size == 0:
+                    continue
+
+                crop_images.append(crop)  # ✅ simpan crop
+
+                # ============================
+                # SEGMENTASI
+                # ============================
                 seg_result = model_seg(crop)
 
                 if seg_result[0].masks is None:
+                    print("⚠️ Segmentation gagal (mask None)")
                     continue
 
                 masks = seg_result[0].masks.data.cpu().numpy()
@@ -81,11 +91,18 @@ def process_image(image):
                     mask = (mask > 0).astype("uint8")
 
                     pixel = np.sum(mask)
+
+                    if pixel == 0:
+                        print("⚠️ Pixel = 0 (mask kosong)")
+                        continue
+
                     weight = pixel * SCALING_FACTOR
                     total_weight += weight
 
+                    # resize mask ke crop
                     mask_resized = cv2.resize(mask, (crop.shape[1], crop.shape[0]))
 
+                    # overlay mask
                     colored_mask = np.zeros_like(crop)
                     colored_mask[:, :, 1] = mask_resized * 255
 
@@ -100,4 +117,4 @@ def process_image(image):
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6,
                             (0, 255, 0), 2)
 
-    return output_image, total_weight, found_rice, detected_objects
+    return output_image, total_weight, found_rice, detected_objects, crop_images
