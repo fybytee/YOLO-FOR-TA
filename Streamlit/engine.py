@@ -6,7 +6,7 @@ from ultralytics import YOLO
 # LOAD MODEL
 # ============================
 model_det = YOLO("best.pt")   # model detection
-# model_seg = YOLO("best_seg.pt")      # model segmentation
+model_seg = YOLO("bestseg.pt")      # model segmentation
 
 SCALING_FACTOR = 0.00010024
 
