@@ -1,53 +1,95 @@
 import streamlit as st
 import numpy as np
 import cv2
-from engine import process_image
+from ultralytics import YOLO
+from PIL import Image
 
-st.title("🍚 Deteksi & Estimasi Berat Nasi")
+# =========================
+# LOAD MODEL
+# =========================
+@st.cache_resource
+def load_model():
+    return YOLO("yolo26-seg.pt")  # ganti sesuai model kamu
 
-uploaded_file = st.file_uploader("Upload gambar", type=["jpg", "png"])
+model = load_model()
+
+# =========================
+# CLASS NAMES
+# =========================
+class_names = ['buah', 'karbo', 'nasi', 'protein', 'sayur', 'susu']
+
+# =========================
+# STREAMLIT UI
+# =========================
+st.title("🍱 Segmentasi Makanan + Hitung Pixel Nasi (FIX SCALE)")
+
+uploaded_file = st.file_uploader("Upload Gambar", type=["jpg", "png", "jpeg"])
 
 if uploaded_file is not None:
-    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    image = Image.open(uploaded_file).convert("RGB")
+    image_np = np.array(image)
 
-    # BGR untuk model
-    image_bgr = cv2.imdecode(file_bytes, 1)
+    # ukuran asli
+    H, W = image_np.shape[:2]
 
-    # RGB untuk display
-    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    st.image(image, caption="Gambar Asli", use_column_width=True)
 
-    st.image(image_rgb, caption="Input", use_column_width=True)
+    # =========================
+    # PREDIKSI
+    # =========================
+    results = model(image_np)
+    result = results[0]
 
-    if st.button("🔍 Proses"):
-        with st.spinner("Processing..."):
-            result_img, weight, found, objects, crops = process_image(image_bgr)
+    # =========================
+    # VISUALISASI
+    # =========================
+    annotated = result.plot()
+    st.image(annotated, caption="Hasil Segmentasi", use_column_width=True)
 
-        # convert hasil ke RGB
-        result_img = cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB)
-        st.image(result_img, caption="Hasil Deteksi", use_column_width=True)
+    # =========================
+    # DEBUG UKURAN (biar jelas)
+    # =========================
+    st.write("Ukuran gambar asli:", (H, W))
 
-        # ============================
-        # OBJEK TERDETEKSI
-        # ============================
-        st.subheader("📦 Objek Terdeteksi")
-        for obj in objects:
-            st.write(f"- {obj['label']} ({obj['confidence']})")
+    nasi_pixel_total = 0
 
-        # ============================
-        # CROP NASI
-        # ============================
-        st.subheader("🧩 Crop Nasi")
-        if len(crops) == 0:
-            st.write("Tidak ada crop nasi")
-        else:
-            for i, crop in enumerate(crops):
-                crop_rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
-                st.image(crop_rgb, caption=f"Crop Nasi {i+1}", use_column_width=True)
+    if result.masks is not None:
+        masks = result.masks.data.cpu().numpy()   # (n, h, w)
+        classes = result.boxes.cls.cpu().numpy()
 
-        # ============================
-        # HASIL BERAT
-        # ============================
-        if not found:
-            st.warning("❌ Tidak ditemukan nasi")
-        else:
-            st.success(f"🍚 Estimasi Berat: {weight:.2f} gram")
+        st.write("Ukuran mask YOLO:", masks.shape)
+
+        for i, mask in enumerate(masks):
+            class_id = int(classes[i])
+            class_name = class_names[class_id]
+
+            if class_name == "nasi":
+
+                # =========================
+                # 🔥 RESIZE MASK KE ORIGINAL
+                # =========================
+                mask_resized = cv2.resize(mask, (W, H))
+
+                # =========================
+                # THRESHOLD
+                # =========================
+                binary_mask = mask_resized > 0.5
+
+                # =========================
+                # HITUNG PIXEL
+                # =========================
+                nasi_pixel = np.sum(binary_mask)
+                nasi_pixel_total += nasi_pixel
+
+    # =========================
+    # OUTPUT
+    # =========================
+    st.subheader("📊 Hasil Perhitungan")
+
+    if nasi_pixel_total > 0:
+        st.success(f"Jumlah pixel nasi: {int(nasi_pixel_total)}")
+    else:
+        st.warning("Tidak ada nasi terdeteksi")
+
+
+    ###############
