@@ -3,6 +3,5 @@ ultralytics
 opencv-python-headless
 pillow
 numpy
-gdown
 matplotlib
 pandas
