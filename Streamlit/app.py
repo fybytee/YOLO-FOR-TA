@@ -39,7 +39,13 @@ if uploaded_file is not None:
     # =========================
     # PREDIKSI YOLO
     # =========================
-    results = model(image_np)
+    results = model.predict(
+    source=image_np,
+    conf=0.25,
+    iou=0.45,
+    imgsz=640,
+    device="cpu"
+)
     result = results[0]
 
     # =========================
