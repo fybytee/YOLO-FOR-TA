@@ -1,6 +1,5 @@
 import streamlit as st
 import numpy as np
-import cv2
 from ultralytics import YOLO
 from PIL import Image
 
@@ -9,7 +8,7 @@ from PIL import Image
 # =========================
 @st.cache_resource
 def load_model():
-    return YOLO("yolo26-seg.pt")  # ganti sesuai model kamu
+    return YOLO("Streamlit/yolo26-seg.pt")  # pastikan path benar
 
 model = load_model()
 
@@ -32,7 +31,7 @@ if uploaded_file is not None:
     # ukuran asli
     H, W = image_np.shape[:2]
 
-    st.image(image, caption="Gambar Asli", use_column_width=True)
+    st.image(image, caption="Gambar Asli", width="stretch")
 
     # =========================
     # PREDIKSI
@@ -44,17 +43,14 @@ if uploaded_file is not None:
     # VISUALISASI
     # =========================
     annotated = result.plot()
-    st.image(annotated, caption="Hasil Segmentasi", use_column_width=True)
+    st.image(annotated, caption="Hasil Segmentasi", width="stretch")
 
-    # =========================
-    # DEBUG UKURAN (biar jelas)
-    # =========================
     st.write("Ukuran gambar asli:", (H, W))
 
     nasi_pixel_total = 0
 
     if result.masks is not None:
-        masks = result.masks.data.cpu().numpy()   # (n, h, w)
+        masks = result.masks.data.cpu().numpy()
         classes = result.boxes.cls.cpu().numpy()
 
         st.write("Ukuran mask YOLO:", masks.shape)
@@ -65,19 +61,15 @@ if uploaded_file is not None:
 
             if class_name == "nasi":
 
-                # =========================
-                # 🔥 RESIZE MASK KE ORIGINAL
-                # =========================
-                mask_resized = cv2.resize(mask, (W, H))
+                # 🔥 RESIZE pakai PIL (bukan cv2)
+                mask_img = Image.fromarray(mask)
+                mask_resized = mask_img.resize((W, H))
 
-                # =========================
-                # THRESHOLD
-                # =========================
+                mask_resized = np.array(mask_resized)
+
+                # threshold
                 binary_mask = mask_resized > 0.5
 
-                # =========================
-                # HITUNG PIXEL
-                # =========================
                 nasi_pixel = np.sum(binary_mask)
                 nasi_pixel_total += nasi_pixel
 
@@ -90,6 +82,3 @@ if uploaded_file is not None:
         st.success(f"Jumlah pixel nasi: {int(nasi_pixel_total)}")
     else:
         st.warning("Tidak ada nasi terdeteksi")
-
-
-    ###############
