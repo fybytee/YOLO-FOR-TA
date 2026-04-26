@@ -8,7 +8,7 @@ from PIL import Image
 # =========================
 @st.cache_resource
 def load_model():
-    return YOLO("Streamlit/yolo26-seg.pt")
+    return YOLO("Streamlit/yolo26-seg.onnx")
 
 model = load_model()
 
