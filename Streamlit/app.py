@@ -15,7 +15,8 @@ model = load_model()
 # =========================
 # CLASS NAMES
 # =========================
-class_names = ['buah', 'karbo', 'nasi', 'protein', 'sayur', 'susu']
+# class_names = ['buah', 'karbo', 'nasi', 'protein', 'sayur', 'susu']
+class_names = model.names
 
 # =========================
 # UI
@@ -44,7 +45,6 @@ if uploaded_file is not None:
     conf=0.25,
     iou=0.45,
     imgsz=640,
-    device="cpu"
 )
     result = results[0]
 
