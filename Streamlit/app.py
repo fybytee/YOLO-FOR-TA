@@ -81,7 +81,7 @@ if uploaded_file is not None:
                 # =========================
                 # THRESHOLD
                 # =========================
-                binary_mask = mask_resized > 0.5
+                binary_mask = mask_resized > 0.25
 
                 nasi_pixel = np.sum(binary_mask)
 
