@@ -1,0 +1,1 @@
+yolo segment predict model=yolo26-seg.pt source=mbgfoto save=True project="D:\Kampus\Semester\TA\github\repo\YOLO FOR TA\YOLO" name=hasil
