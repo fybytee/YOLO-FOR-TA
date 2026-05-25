@@ -15,7 +15,7 @@ class_names = model.names
 # =========================
 # KONSTANTA
 # =========================
-SCALING_FACTOR = 0.00011159
+Kalibrasi = 0.00011159
 KALORI_PER_100_GRAM = 129
 
 # =========================
@@ -95,7 +95,7 @@ def predict():
     # =========================
     # HITUNG GRAM
     # =========================
-    gram_nasi = nasi_pixel_total * SCALING_FACTOR
+    gram_nasi = nasi_pixel_total * Kalibrasi
 
     # =========================
     # HITUNG KALORI
@@ -116,7 +116,7 @@ def predict():
 
         "nasi_pixel": int(nasi_pixel_total),
 
-        "scaling_factor": SCALING_FACTOR,
+        #"Kalibrasi": Kalibrasi,
 
         "gram_nasi": round(gram_nasi, 4),
 
