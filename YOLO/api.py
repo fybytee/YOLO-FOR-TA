@@ -5,7 +5,6 @@ import numpy as np
 import tempfile
 import io
 import os
-import time
 
 app = Flask(__name__)
 
@@ -25,6 +24,8 @@ class_names = model.names
 KALIBRASI = 0.00011159
 
 # 100 gram nasi = 129 kalori
+# sumber:
+# https://www.fatsecret.co.id/kalori-gizi/umum/nasi-putih?portionid=53181&portionamount=100,000
 KALORI_PER_100_GRAM = 129
 
 # =========================
@@ -32,8 +33,6 @@ KALORI_PER_100_GRAM = 129
 # =========================
 @app.route("/predict", methods=["POST"])
 def predict():
-
-    temp_path = None
 
     try:
 
@@ -48,12 +47,6 @@ def predict():
 
         file = request.files["file"]
 
-        if file.filename == "":
-
-            return jsonify({
-                "error": "Empty filename"
-            }), 400
-
         # =========================
         # READ IMAGE
         # =========================
@@ -64,27 +57,18 @@ def predict():
         ).convert("RGB")
 
         # =========================
-        # AMBIL EXTENSION ASLI
-        # =========================
-        ext = os.path.splitext(
-            file.filename
-        )[1].lower()
-
-        # fallback
-        if ext == "":
-            ext = ".jpg"
-
-        # =========================
         # SIMPAN TEMP FILE
+        # supaya inferensi sama
+        # seperti notebook
         # =========================
         temp_file = tempfile.NamedTemporaryFile(
-            suffix=ext,
+            suffix=".jpg",
             delete=False
         )
 
         temp_path = temp_file.name
 
-        # penting di Windows
+        # tutup file agar tidak terkunci di Windows
         temp_file.close()
 
         # save image
@@ -95,7 +79,7 @@ def predict():
         # =========================
         results = model(
             temp_path,
-            conf=0.01,
+            conf=0.2,
             imgsz=640,
             retina_masks=True,
             verbose=False
@@ -113,20 +97,23 @@ def predict():
         nasi_pixel_total = 0
 
         # =========================
-        # DEBUG
+        # DEBUG SHAPE
         # =========================
-        print("\n===== DETECTION =====")
+        print("\n===== DEBUG =====")
+
+        if result.masks is not None:
+
+            print(
+                "Mask shape:",
+                result.masks.data.shape
+            )
 
         # =========================
         # PROCESS BOXES
         # =========================
         if result.boxes is not None:
 
-            classes = (
-                result.boxes.cls
-                .cpu()
-                .numpy()
-            )
+            classes = result.boxes.cls.cpu().numpy()
 
             confidences = (
                 result.boxes.conf
@@ -142,10 +129,10 @@ def predict():
 
                 conf = float(confidences[i])
 
-                detected_classes.add(
-                    class_name
-                )
+                # simpan class
+                detected_classes.add(class_name)
 
+                # simpan detail detection
                 detections.append({
 
                     "class": class_name,
@@ -178,11 +165,6 @@ def predict():
                 .numpy()
             )
 
-            print(
-                "Mask shape:",
-                masks.shape
-            )
-
             for i, mask in enumerate(masks):
 
                 class_id = int(classes[i])
@@ -194,6 +176,7 @@ def predict():
                 # =========================
                 if class_name == "nasi":
 
+                    # binary mask
                     binary_mask = mask > 0.5
 
                     nasi_pixel = np.sum(
@@ -222,7 +205,14 @@ def predict():
             gram_nasi / 100
         ) * KALORI_PER_100_GRAM
 
-        print("=====================\n")
+        # =========================
+        # HAPUS TEMP FILE
+        # =========================
+        if os.path.exists(temp_path):
+
+            os.remove(temp_path)
+
+        print("=================\n")
 
         # =========================
         # RESPONSE
@@ -233,7 +223,7 @@ def predict():
                 detected_classes
             ),
 
-            #"detections": detections,
+            # "detections": detections,
 
             "nasi_pixel": int(
                 nasi_pixel_total
@@ -252,7 +242,7 @@ def predict():
         })
 
     # =========================
-    # ERROR
+    # ERROR HANDLER
     # =========================
     except Exception as e:
 
@@ -261,31 +251,6 @@ def predict():
             "error": str(e)
 
         }), 500
-
-    # =========================
-    # FINALLY
-    # selalu hapus temp file
-    # =========================
-    finally:
-
-        if temp_path is not None:
-
-            try:
-
-                if os.path.exists(temp_path):
-
-                    # delay kecil supaya
-                    # file tidak masih dipakai
-                    time.sleep(0.1)
-
-                    os.remove(temp_path)
-
-            except Exception as delete_error:
-
-                print(
-                    "Gagal hapus temp file:",
-                    delete_error
-                )
 
 
 # =========================
