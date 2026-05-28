@@ -1,8 +1,11 @@
 from flask import Flask, request, jsonify
 from ultralytics import YOLO
-import numpy as np
 from PIL import Image
+import numpy as np
+import tempfile
 import io
+import os
+import time
 
 app = Flask(__name__)
 
@@ -10,12 +13,18 @@ app = Flask(__name__)
 # LOAD MODEL
 # =========================
 model = YOLO("yolo26-seg.pt")
+
+# nama class
 class_names = model.names
 
 # =========================
 # KONSTANTA
 # =========================
-Kalibrasi = 0.00011159
+
+# hasil kalibrasi pixel -> gram
+KALIBRASI = 0.00011159
+
+# 100 gram nasi = 129 kalori
 KALORI_PER_100_GRAM = 129
 
 # =========================
@@ -24,111 +33,266 @@ KALORI_PER_100_GRAM = 129
 @app.route("/predict", methods=["POST"])
 def predict():
 
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
+    temp_path = None
 
-    file = request.files["file"]
+    try:
 
-    # =========================
-    # READ IMAGE
-    # =========================
-    image_bytes = file.read()
+        # =========================
+        # VALIDASI FILE
+        # =========================
+        if "file" not in request.files:
 
-    image = Image.open(
-        io.BytesIO(image_bytes)
-    ).convert("RGB")
+            return jsonify({
+                "error": "No file uploaded"
+            }), 400
 
-    image_np = np.array(image)
+        file = request.files["file"]
 
-    H, W = image_np.shape[:2]
+        if file.filename == "":
 
-    # =========================
-    # PREDICT YOLO
-    # =========================
-    results = model.predict(
-        source=image_np,
-        conf=0.25,
-        iou=0.45,
-        imgsz=640
-    )
+            return jsonify({
+                "error": "Empty filename"
+            }), 400
 
-    result = results[0]
+        # =========================
+        # READ IMAGE
+        # =========================
+        image_bytes = file.read()
 
-    detected_classes = set()
-    nasi_pixel_total = 0
+        image = Image.open(
+            io.BytesIO(image_bytes)
+        ).convert("RGB")
 
-    # =========================
-    # PROCESS MASK
-    # =========================
-    if result.masks is not None:
+        # =========================
+        # AMBIL EXTENSION ASLI
+        # =========================
+        ext = os.path.splitext(
+            file.filename
+        )[1].lower()
 
-        masks = result.masks.data.cpu().numpy()
-        classes = result.boxes.cls.cpu().numpy()
+        # fallback
+        if ext == "":
+            ext = ".jpg"
 
-        for i, mask in enumerate(masks):
+        # =========================
+        # SIMPAN TEMP FILE
+        # =========================
+        temp_file = tempfile.NamedTemporaryFile(
+            suffix=ext,
+            delete=False
+        )
 
-            class_id = int(classes[i])
-            class_name = class_names[class_id]
+        temp_path = temp_file.name
 
-            detected_classes.add(class_name)
+        # penting di Windows
+        temp_file.close()
 
-            if class_name == "nasi":
+        # save image
+        image.save(temp_path)
 
-                # Resize mask ke ukuran asli
-                mask_img = Image.fromarray(
-                    (mask * 255).astype(np.uint8)
+        # =========================
+        # PREDICT YOLO
+        # =========================
+        results = model(
+            temp_path,
+            conf=0.01,
+            imgsz=640,
+            retina_masks=True,
+            verbose=False
+        )
+
+        result = results[0]
+
+        # =========================
+        # VARIABLE
+        # =========================
+        detected_classes = set()
+
+        detections = []
+
+        nasi_pixel_total = 0
+
+        # =========================
+        # DEBUG
+        # =========================
+        print("\n===== DETECTION =====")
+
+        # =========================
+        # PROCESS BOXES
+        # =========================
+        if result.boxes is not None:
+
+            classes = (
+                result.boxes.cls
+                .cpu()
+                .numpy()
+            )
+
+            confidences = (
+                result.boxes.conf
+                .cpu()
+                .numpy()
+            )
+
+            for i in range(len(classes)):
+
+                class_id = int(classes[i])
+
+                class_name = class_names[class_id]
+
+                conf = float(confidences[i])
+
+                detected_classes.add(
+                    class_name
                 )
 
-                mask_resized = mask_img.resize(
-                    (W, H),
-                    resample=Image.NEAREST
+                detections.append({
+
+                    "class": class_name,
+
+                    "confidence": round(
+                        conf,
+                        4
+                    )
+
+                })
+
+                print(
+                    f"{class_name} -> {conf:.4f}"
                 )
 
-                mask_resized = np.array(mask_resized) / 255.0
+        # =========================
+        # PROCESS MASK
+        # =========================
+        if result.masks is not None:
 
-                binary_mask = mask_resized > 0.25
+            masks = (
+                result.masks.data
+                .cpu()
+                .numpy()
+            )
 
-                nasi_pixel = np.sum(binary_mask)
+            classes = (
+                result.boxes.cls
+                .cpu()
+                .numpy()
+            )
 
-                nasi_pixel_total += nasi_pixel
+            print(
+                "Mask shape:",
+                masks.shape
+            )
+
+            for i, mask in enumerate(masks):
+
+                class_id = int(classes[i])
+
+                class_name = class_names[class_id]
+
+                # =========================
+                # HITUNG PIXEL NASI
+                # =========================
+                if class_name == "nasi":
+
+                    binary_mask = mask > 0.5
+
+                    nasi_pixel = np.sum(
+                        binary_mask
+                    )
+
+                    nasi_pixel_total += nasi_pixel
+
+                    print(
+                        "Nasi pixel:",
+                        nasi_pixel
+                    )
+
+        # =========================
+        # HITUNG BERAT NASI
+        # =========================
+        gram_nasi = (
+            nasi_pixel_total
+            * KALIBRASI
+        )
+
+        # =========================
+        # HITUNG KALORI
+        # =========================
+        kalori_nasi = (
+            gram_nasi / 100
+        ) * KALORI_PER_100_GRAM
+
+        print("=====================\n")
+
+        # =========================
+        # RESPONSE
+        # =========================
+        return jsonify({
+
+            "classes_detected": list(
+                detected_classes
+            ),
+
+            #"detections": detections,
+
+            "nasi_pixel": int(
+                nasi_pixel_total
+            ),
+
+            "gram_nasi": round(
+                gram_nasi,
+                4
+            ),
+
+            "kalori_nasi": round(
+                kalori_nasi,
+                2
+            )
+
+        })
 
     # =========================
-    # HITUNG GRAM
+    # ERROR
     # =========================
-    gram_nasi = nasi_pixel_total * Kalibrasi
+    except Exception as e:
 
-    # =========================
-    # HITUNG KALORI
-    # perhitungan kalori dari:
-    # https://www.fatsecret.co.id/kalori-gizi/umum/nasi-putih?portionid=53181&portionamount=100,000
-    # 100 gram nasi putih = 129 kalori
-    # =========================
-    kalori_nasi = (
-        gram_nasi / 100
-    ) * KALORI_PER_100_GRAM
+        return jsonify({
+
+            "error": str(e)
+
+        }), 500
 
     # =========================
-    # RESPONSE
+    # FINALLY
+    # selalu hapus temp file
     # =========================
-    return jsonify({
+    finally:
 
-        "classes_detected": list(detected_classes),
+        if temp_path is not None:
 
-        "nasi_pixel": int(nasi_pixel_total),
+            try:
 
-        #"Kalibrasi": Kalibrasi,
+                if os.path.exists(temp_path):
 
-        "gram_nasi": round(gram_nasi, 4),
+                    # delay kecil supaya
+                    # file tidak masih dipakai
+                    time.sleep(0.1)
 
-        "kalori_nasi": round(kalori_nasi, 2)
+                    os.remove(temp_path)
 
-    })
+            except Exception as delete_error:
+
+                print(
+                    "Gagal hapus temp file:",
+                    delete_error
+                )
 
 
 # =========================
 # RUN SERVER
 # =========================
 if __name__ == "__main__":
+
     app.run(
         host="0.0.0.0",
         port=5000,
